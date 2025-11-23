@@ -1,0 +1,20 @@
+{
+	"dependencies": {
+		"@types/puppeteer": "^7.0.4",
+		"astring": "^1.9.0",
+		"bgutils-js": "^3.2.0",
+		"googlevideo": "^4.0.4",
+		"meriyah": "^6.1.4",
+		"puppeteer": "^24.31.0",
+		"puppeteer-extra": "^3.3.6",
+		"puppeteer-extra-plugin-stealth": "^2.11.2"
+	},
+	"devDependencies": {
+		"@babel/core": "^7.28.5",
+		"@babel/preset-env": "^7.28.5",
+		"@rollup/plugin-babel": "^6.1.0",
+		"@rollup/plugin-commonjs": "^29.0.0",
+		"@rollup/plugin-node-resolve": "^16.0.3",
+		"rollup": "^4.53.3"
+	}
+}
