@@ -17,7 +17,7 @@ let bgRunner = new BgRunner(browserInstance.mainPage);
 await bgRunner.initialize(browserInstance.jnnChallengeData, browserInstance.jnnGenerateData);
 // bgRunner._test();
 
-console.log("Startup success! try inputting a video id, ill print a PO token for you.");
+console.log("Startup success! try inputting a video id, and ill download it for you!");
 
 process.stdin.on('data', async (line) => {
   let stringLine = line.toString().trim();

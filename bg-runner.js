@@ -11,16 +11,16 @@ class BgRunner {
   async initialize(jnnChallengeData, jnnGenerateData) {
     await this._initializeUtils();
     await this.page.evaluate(async (challengeData, generateData) => {
-      let bgChallenge = BGUtils.Challenge.parseChallengeData(challengeData);
-
-      const interpreterJavascript = bgChallenge.interpreterJavascript.privateDoNotAccessOrElseSafeScriptWrappedValue;
-
-      const blob = new Blob([interpreterJavascript], { type: "text/javascript" });
-      const blobUrl = URL.createObjectURL(blob);
-
-      console.log(interpreterJavascript);
-
       try {
+        let bgChallenge = BGUtils.Challenge.parseChallengeData(challengeData);
+
+        const interpreterJavascript = bgChallenge.interpreterJavascript.privateDoNotAccessOrElseSafeScriptWrappedValue;
+
+        const blob = new Blob([interpreterJavascript], { type: "text/javascript" });
+        const blobUrl = URL.createObjectURL(blob);
+
+        console.log(interpreterJavascript);
+
         // eval(interpreterJavascript);
 
         /* if (!document.getElementById(bgChallenge.interpreterHash)) {
@@ -46,7 +46,7 @@ class BgRunner {
         console.log("Finished token creation for", integrityToken);
 
         window.tokenMinter = tokenMinter;
-      } catch { console.log("uh oh") }
+      } catch(err) { console.log(err) }
 
     }, jnnChallengeData, jnnGenerateData);
   }
