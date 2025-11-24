@@ -1,10 +1,12 @@
 {
 	"dependencies": {
+		"@flatten-js/interval-tree": "^2.0.3",
 		"@types/puppeteer": "^7.0.4",
 		"astring": "^1.9.0",
 		"bgutils-js": "^3.2.0",
 		"googlevideo": "^4.0.4",
 		"meriyah": "^6.1.4",
+		"node-gyp": "^12.1.0",
 		"puppeteer": "^24.31.0",
 		"puppeteer-extra": "^3.3.6",
 		"puppeteer-extra-plugin-stealth": "^2.11.2",

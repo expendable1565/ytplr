@@ -1,6 +1,8 @@
 // my shoddy implementation of a cache tree
 
-function searchLowerBound(targetList, position) {
+import IntervalTree from "@flatten-js/interval-tree";
+
+/* function searchLowerBound(targetList, position) {
   let left = 0;
   let right = targetList.length - 1;
   let res = null;
@@ -30,7 +32,7 @@ function searchUpperBound(targetList, position) {
     }
   }
   return res;
-}
+} */
 
 function invertType(marker) {
   return {
@@ -40,64 +42,103 @@ function invertType(marker) {
 }
 
 class IntervalList {
-  _intervals = [];
-  _pendingInserts = [];
-  _insertOffset = 0;
+  _intervals;
   _currentBuffer;
 
   constructor() {
+    this._intervals = new IntervalTree();
   }
 
   // only returns the first gap, cause fuck you.
   // ill implement a proper one later.
   findGaps(startRange, endRange) {
-    let gaps = [
-      {"type": "start", "duration": startRange},
-      {"type": "end", "duration": endRange}
-    ];
-    let lowerRange = searchUpperBound(this._intervals, startRange);
-    let higherRange = searchLowerBound(this._intervals, endRange);
-    
-    if (lowerRange > endRange) {
-      lowerRange = null;
-    }
-    if (higherRange < startRange) {
-      higherRange = null;
-    }
+    let knownGaps = [
+      { "type": "end", "duration": startRange - 1 },
+      { "type": "start", "duration": endRange + 1 }
+    ]
+    let gapResult = []
+    this._intervals.search([startRange, endRange], (v, k) => {
+      if (k.low > startRange) {
+        knownGaps.push({ "type": "start", duration: k.low });
+      }
+      if (k.high < endRange) {
+        knownGaps.push({ "type": "end", duration: k.high });
+      }
+    });
 
-    lowerRange = lowerRange || higherRange;
-    higherRange = higherRange || lowerRange;
+    knownGaps.sort((a, b) => a.duration - b.duration);
 
-    if (!lowerRange || !higherRange) {
-      return gaps;
-    }
-
-    if (lowerRange == higherRange) {
-      gaps.push(
-        invertMarker(self._intervals[lowerRange])
-      );
-    }
-
-    let lastBegin = gaps[0];
-    let resultGaps = [];
-
-    for (let i = lowerRange; i <= higherRange; i++) {
-      let item = self._intervals[i];
-      if (item.type == "end") {
-        lastBegin = invertType(item);
-      } else {
-        if (lastBegin) {
-          let beginDuration = lastBegin.duration + 1;
-          let endDuration = item.duration - 1;
-          lastBegin = null;
-          if (endDuration < beginDuration) {
-            continue;
-          }
-          return [beginDuration, endDuration, i]
-          // this._pendingInserts.push([beginDuration, endDuration, i + this._insertOffset]);
+    let lastGapDuration = null;
+    for (let gapMarker of knownGaps) {
+      if (gapMarker.type == "end") {
+        lastGapDuration = gapMarker.duration + 1;
+      } else if (gapMarker.type == "start" && lastGapDuration != null) {
+        if (lastGapDuration == gapMarker.duration) {
+          lastGapDuration = null;
+          continue;
         }
+        gapResult.push({
+          range: [lastGapDuration, gapMarker.duration - 1],
+          buffer: [Buffer.alloc(0)] // reference "hack"
+        });
+        lastGapDuration = null;
       }
     }
+
+    for (let gap of gapResult) {
+      this._intervals.insert(gap.range, gap.buffer);
+    }
+
+    return gapResult;
+  }
+
+  removeGaps(gapData) {
+    for (let gap of gapData) {
+      this._intervals.remove(gap);
+    }
+  }
+
+  readBytes(startRange, endRange) {
+    let unsorted = this._intervals.search([startRange, endRange], (value, key) => {
+      return {
+        "start": key.low,
+        "end": key.high,
+        "buffer": value
+      }
+    })
+
+    unsorted.sort((a, b) => a.start - b.start);
+
+    if (unsorted.length == 0) {
+      return null;
+    }
+    
+    let result = Buffer.alloc(0);
+    let currentStart = startRange;
+    let currentEnd = 0;
+
+    for (let gap of unsorted) {
+      // console.log(gap, gap.buffer);
+      if (gap.start > currentStart) {
+        return null;
+      }
+      if (gap.buffer[0].length == 0) {
+        return null
+      }
+      currentEnd = Math.min(endRange, gap.end);
+      let segmentOffset = currentStart - gap.start;
+      let segmentEndOffset = currentEnd - gap.start;
+      let partial = gap.buffer[0].slice(segmentOffset, segmentEndOffset + 1);
+      result = Buffer.concat([result, partial]);
+
+      currentStart = currentEnd + 1;
+    }
+
+    if (currentEnd != endRange) {
+      return null;
+    }
+
+    return result;
   }
 
   addSegment(insertData, buffer) {
@@ -126,7 +167,7 @@ class IntervalList {
   }
 
   clearPendingInserts() {
-    
+
   }
 
 }

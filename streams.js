@@ -133,6 +133,9 @@ export async function getBestAudioStream(browserInstance, videoId, poTokenMinter
   let newN = sigFunctions.n(nSignature);
   rawUrl.searchParams.set("n", newN);
   rawUrl.searchParams.set("pot", await poTokenMinter.mintToken(visitorId));
+  rawUrl.searchParams.set("len", bestStream.contentLength);
+  rawUrl.searchParams.set("ump", "1");
+  rawUrl.searchParams.set("srfvp", 1)
 
   console.log("Finish proc URL", rawUrl.searchParams)
 
