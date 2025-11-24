@@ -8,6 +8,7 @@ import { UmpReader, CompositeBuffer } from "googlevideo/ump";
 import * as Protos from "googlevideo/protos";
 import { Readable } from "stream";
 import { writeFileSync } from "fs";
+import { getCueTimestamp } from "./libs/audio-processor.js";
 
 const speaker = new Speaker({
   channels: 2,
@@ -59,16 +60,17 @@ class Player {
 
   static async create(baseUrl) {
     let instance = new Player(baseUrl);
-    instance.requestBytes(0, 500000);
     instance._requestLoop();
 
-    let byteHeader = instance.audioCache.readBytes(0, 500000);
+    let byteHeader = instance.audioCache.readBytes(0, 2000);
     while (!byteHeader) {
+      instance.requestBytes(0, 2000, true);
       await instance._finishedRequest.wait();
-      byteHeader = instance.audioCache.readBytes(0, 500000);
+
+      byteHeader = instance.audioCache.readBytes(0, 2000);
     }
 
-    instance._byteLookup = await instance._getByteLookup(byteHeader);
+    instance._byteLookup = getCueTimestamp(byteHeader);
     console.log("Successfully looked up audio bytes! with a total value of", instance._byteLookup.length);
 
     instance._ffmpegInstance = spawn("ffmpeg", [
@@ -84,14 +86,21 @@ class Player {
     instance._ffmpegInstance.stdout.pipe(speaker);
 
     setInterval(() => {
-      if (instance.audioCache.readBytes(instance.bytePosition, instance.bytePosition + 100000) != null) {
+      let [regionStart, regionEnd] = instance._getSegment(instance.bytePosition + 100000);
+      console.info("Preloading", regionStart, regionEnd);
+      if (instance.audioCache.readBytes(regionStart, regionEnd) != null) {
+        console.log("Already");
         return;
       }
-      instance.requestBytes(instance.bytePosition, instance.bytePosition + 400000);
+      instance.requestBytes(regionStart, regionEnd);
     }, 2000)
 
 
     return instance;
+  }
+
+  async tryPreload() {
+
   }
 
   async readBytes(length) {
@@ -99,14 +108,18 @@ class Player {
       return;
     }
     this.requestBytes(this.bytePosition, this.bytePosition + 500000); */
-    
+
+
+
     while (this._pendingBytes.length < length) {
-      let remainingLength = Math.min(length, this.contentLength - this.bytePosition);
-      let finalPosition = this._findNearestSegmentEnd(this.bytePosition + remainingLength);
-      if (finalPosition < 0) {
-        console.log("Audio unloaded. Please wait.");
-        await this._finishedRequest.wait();
+      if (this.bytePosition == this.contentLength) {
+        console.log("Content finished. Waiting for media event.")
+        await this._mediaPlayerEvent.wait();
       }
+      let remainingLength = Math.min(length, this.contentLength - this.bytePosition);
+      // let finalPosition = this._findNearestSegmentEnd(this.bytePosition + remainingLength);
+      let finalPosition = this.bytePosition + remainingLength - 1;
+      
       console.log("Reading buffer", `${this.bytePosition}-${finalPosition}`, remainingLength, length);
       let byteData = this.audioCache.readBytes(this.bytePosition, finalPosition);
       if (!byteData) {
@@ -115,18 +128,15 @@ class Player {
       }
       console.log("Read Ok");
       this._pendingBytes = Buffer.concat([this._pendingBytes, byteData]);
-      this.bytePosition = finalPosition;
+      this.bytePosition = finalPosition + 1;
     }
 
     console.log("Buffer fill done.");
 
-    let result = this._pendingBytes.subarray(0, length);
-    let remaining = this._pendingBytes.subarray(length);
+    let result = Buffer.from(this._pendingBytes.subarray(0, length));
+    let remaining = Buffer.from(this._pendingBytes.subarray(length));
     this._pendingBytes = remaining;
     return result;
-
-        
-
     /*if (finalPosition <= this.bytePosition) {
       // await this._mediaPlayerEvent.wait();
       return Buffer.alloc(0);
@@ -158,7 +168,7 @@ class Player {
     } */
     for (let [key, value] of Object.entries(this._byteLookup)) {
       if (value.byte > byte) {
-        return value.byte-1;
+        return value.byte - 1;
       }
     }
     return -52;
@@ -248,8 +258,29 @@ class Player {
       let decodedResult = await getUMPDecodedAudioStream(rawResult);
       let bufferForm = Buffer.from(decodedResult);
       nextRequest.buffer[0] = bufferForm;
-      console.info("Download OK", bufferForm.length);
+      console.info("Download OK", requestRange, bufferForm.length);
       this._finishedRequest.resolve();
+    }
+  }
+
+  _getSegment(byteOffset) {
+    let begin = 0, end = this._byteLookup.length - 1;
+    let result = -1;
+    while (begin <= end) {
+      let mid = Math.floor((begin + end) / 2);
+      if (this._byteLookup[mid].byte <= byteOffset) {
+        result = mid;
+        begin = mid + 1;
+      } else {
+        end = mid - 1;
+      }
+    }
+    if (result == -1) {
+      return [0, this._byteLookup[0].byte - 1];
+    } else if (result == this._byteLookup.length - 1) {
+      return [this._byteLookup[result].byte, this.contentLength - 1];
+    } else {
+      return [this._byteLookup[result].byte, this._byteLookup[result + 1].byte - 1];
     }
   }
 

@@ -1,6 +1,6 @@
 import getSigFunctions from "./data/parser-script.js";
 import fs from "node:fs"
-import {UmpReader, CompositeBuffer} from "googlevideo/ump";
+import { UmpReader, CompositeBuffer } from "googlevideo/ump";
 import * as Protos from "googlevideo/protos"
 
 async function getUMPDecodedAudioStream(arrayBuffer) {
@@ -8,7 +8,7 @@ async function getUMPDecodedAudioStream(arrayBuffer) {
 
   let mediaData = new Uint8Array(0);
   let redirect
-  
+
   const handleMediaData = async (data) => {
     const combinedLength = mediaData.length + data.length;
     const tempMediaData = new Uint8Array(combinedLength);
@@ -64,9 +64,20 @@ async function getUMPDecodedAudioStream(arrayBuffer) {
     return handleRedirect(redirect);
 
   return mediaData;
-/* 
-  if (mediaData.length)
-    mediaData = mediaData; */
+  /* 
+    if (mediaData.length)
+      mediaData = mediaData; */
+}
+
+export async function solveSignatures(rawUrl, videoId, poTokenMinter) {
+  let nSignature = rawUrl.searchParams.get("n");
+  let newN = sigFunctions.n(nSignature);
+  rawUrl.searchParams.set("n", newN);
+  rawUrl.searchParams.set("pot", await poTokenMinter.mintToken(visitorId));
+  rawUrl.searchParams.set("ump", "1");
+  rawUrl.searchParams.set("srfvp", 1)
+
+  console.log("Finish proc URL", rawUrl.searchParams)
 }
 
 export async function getBestAudioStream(browserInstance, videoId, poTokenMinter) {
@@ -115,6 +126,7 @@ export async function getBestAudioStream(browserInstance, videoId, poTokenMinter
 
   console.log(`Found best stream with itag ${bestStream.itag} len ${bestStream.contentLength}`);
 
+
   let rawUrl;
   if (bestStream.signatureCipher) {
     let signatureData = new URLSearchParams(bestStream.signatureCipher);
@@ -129,11 +141,11 @@ export async function getBestAudioStream(browserInstance, videoId, poTokenMinter
     console.log("URL is normal");
   }
 
+  rawUrl.searchParams.set("len", bestStream.contentLength);
   let nSignature = rawUrl.searchParams.get("n");
   let newN = sigFunctions.n(nSignature);
   rawUrl.searchParams.set("n", newN);
   rawUrl.searchParams.set("pot", await poTokenMinter.mintToken(visitorId));
-  rawUrl.searchParams.set("len", bestStream.contentLength);
   rawUrl.searchParams.set("ump", "1");
   rawUrl.searchParams.set("srfvp", 1)
 

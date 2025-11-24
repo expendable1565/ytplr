@@ -1,0 +1,6 @@
+- Add granular packet timestamp processing when downloading
+- Add seeking(!!!)
+- Add a way to play stop and restart
+- Add next handling (should be easy)
+- Add gui!!! 
+- DONE!!! (YAYY!!!!!)
