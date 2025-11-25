@@ -48,6 +48,7 @@ class Player {
 
   _pendingRequests = [];
   _byteLookup;
+  _granularByteLookup;
   _pendingBytes = Buffer.alloc(0);
 
   // creates an audio player based on fetched audio src url.
@@ -62,15 +63,16 @@ class Player {
     let instance = new Player(baseUrl);
     instance._requestLoop();
 
-    let byteHeader = instance.audioCache.readBytes(0, 2000);
+    let byteHeader = instance.audioCache.readBytes(0, 100000);
     while (!byteHeader) {
       instance.requestBytes(0, 2000, true);
       await instance._finishedRequest.wait();
 
-      byteHeader = instance.audioCache.readBytes(0, 2000);
+      byteHeader = instance.audioCache.readBytes(0, 100000);
     }
 
     instance._byteLookup = getCueTimestamp(byteHeader);
+    instance._granularLookup = instance._getByteLookup(byteHeader);
     console.log("Successfully looked up audio bytes! with a total value of", instance._byteLookup.length);
 
     instance._ffmpegInstance = spawn("ffmpeg", [
@@ -86,20 +88,41 @@ class Player {
     instance._ffmpegInstance.stdout.pipe(speaker);
 
     setInterval(() => {
-      let [regionStart, regionEnd] = instance._getSegment(instance.bytePosition + 100000);
-      console.info("Preloading", regionStart, regionEnd);
-      if (instance.audioCache.readBytes(regionStart, regionEnd) != null) {
-        console.log("Already");
-        return;
-      }
-      instance.requestBytes(regionStart, regionEnd);
+      preload();
+      // let [regionStart, regionEnd] = instance._getSegment(instance.bytePosition + 100000);
+      // console.info("Preloading", regionStart, regionEnd);
+      // if (instance.audioCache.readBytes(regionStart, regionEnd) != null) {
+      //   console.log("Already");
+      //   return;
+      // }
+      // instance.requestBytes(regionStart, regionEnd);
     }, 2000)
 
 
     return instance;
   }
 
-  async tryPreload() {
+  preload() {
+    let [regionStart, regionEnd] = this._getSegment(this.bytePosition);
+    let [nextRegionStart, nextRegionEnd] = this._getSegment(this.bytePosition + 100000);
+    if (instance.audioCache.readBytes(regionStart, nextRegionEnd)) {
+      return;
+    }
+    console.log("Preloading", regionStart, nextRegionEnd);
+    instace.requestBytes(regionStart, nextRegionEnd);
+  }
+
+  async processTimeRegion(byteStart, byteEnd) {
+    let headerRegion = instance.audioCache.readBytes(...instance._getSegment(0));
+    if (!headerRegion) {
+      console.log("Header not  loaded");
+      return;
+    }
+    let bodyRegion = instance.audioCache.readBytes(byteStart, byteEnd);
+    if (!bodyRegion) {
+      console.log("Body not loaded");
+      return;
+    }
 
   }
 
@@ -117,9 +140,8 @@ class Player {
         await this._mediaPlayerEvent.wait();
       }
       let remainingLength = Math.min(length, this.contentLength - this.bytePosition);
-      // let finalPosition = this._findNearestSegmentEnd(this.bytePosition + remainingLength);
-      let finalPosition = this.bytePosition + remainingLength - 1;
-      
+      let finalPosition = this._findPacketEnd(this.bytePosition + remainingLength - 1);
+
       console.log("Reading buffer", `${this.bytePosition}-${finalPosition}`, remainingLength, length);
       let byteData = this.audioCache.readBytes(this.bytePosition, finalPosition);
       if (!byteData) {
@@ -152,26 +174,44 @@ class Player {
     return result; */
   }
 
-  _findNearestSegmentEnd(byte) {
-    /* let begin = 0;
-    let end = this._byteLookup.length - 1;
+  _findPacketStart(byte) {
+    let begin = 0;
+    let end = this._granularByteLookup.length - 1;
     let result = -1;
     while (begin <= end) {
       let middle = Math.floor((begin + end) / 2);
-      console.log("Found middle ", middle, "of", this._byteLookup.length, begin, end);
+      if (this._byteLookup[middle].byte <= byte) {
+        result = middle;
+        begin = middle + 1;
+      } else {
+        end = middle - 1;
+      }
+    }
+    if (result == -1) {
+      return 0;
+    } else {
+      return this._granularByteLookup[result].byte;
+    }
+  }
+
+  _findPacketEnd(byte) {
+    let begin = 0;
+    let end = this._granularByteLookup.length - 1;
+    let result = -1;
+    while (begin <= end) {
+      let middle = Math.floor((begin + end) / 2);
       if (this._byteLookup[middle].byte >= byte) {
-        result = this._byteLookup[middle].byte - 1;
+        result =middle;
         end = middle - 1;
       } else {
         begin = middle + 1;
       }
-    } */
-    for (let [key, value] of Object.entries(this._byteLookup)) {
-      if (value.byte > byte) {
-        return value.byte - 1;
-      }
     }
-    return -52;
+    if (result == -1) {
+      return this.contentLength - 1;
+    } else {
+      return this._granularByteLookup[result].byte - 1;
+    }
   }
 
   async _getByteLookup(headerString) {
@@ -276,7 +316,7 @@ class Player {
       }
     }
     if (result == -1) {
-      return [0, this._byteLookup[0].byte - 1];
+      return [0, this._byteLookup[0].byte - 1], this._byteLookup;
     } else if (result == this._byteLookup.length - 1) {
       return [this._byteLookup[result].byte, this.contentLength - 1];
     } else {

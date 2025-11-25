@@ -69,6 +69,122 @@ async function getUMPDecodedAudioStream(arrayBuffer) {
       mediaData = mediaData; */
 }
 
+class ChallengeSolver {
+  base = null;
+  signatureFunctions = null;
+
+  constructor(base) {
+    this.base = base;
+
+    let baseFile = fs.readFileSync("./data/base.js");
+    this.signatureFunctions = getSigFunctions(baseFile.toString());
+  }
+
+  async getBestAudioStream(videoId) {
+    let browserInstance = this.base.browserInstance;
+    let visitorId = videoId.trim();
+
+    let newRequestObject = {};
+    Object.assign(newRequestObject, browserInstance.baseContext);
+    newRequestObject.videoId = videoId.trim();
+
+    let headerObject = {
+      Cookie: await browserInstance.getCookieString(),
+      "content-type": "application/json"
+    }
+    let newHeaderObject = {};
+    Object.assign(newHeaderObject, browserInstance.baseHeaders);
+    Object.assign(newHeaderObject, headerObject);
+
+    console.log("Sending request, headers:");
+    console.log(newHeaderObject);
+    console.log("Body");
+    console.log(newRequestObject);
+
+    const resp = await fetch("https://music.youtube.com/youtubei/v1/player?prettyPrint=false", {
+      method: "POST",
+      headers: newHeaderObject,
+      body: JSON.stringify(newRequestObject)
+    })
+
+    const jsonData = await resp.json();
+
+    console.log("Received data", jsonData);
+
+    const adaptiveStreams = jsonData.streamingData.adaptiveFormats;
+    let bestStream = null;
+    for (let data of adaptiveStreams) {
+      if (data.audioQuality == "AUDIO_QUALITY_MEDIUM") {
+        bestStream = data;
+      }
+    }
+
+    console.log(`Found best stream with itag ${bestStream.itag} len ${bestStream.contentLength}`);
+
+
+    return bestStream
+
+  }
+
+  async getDecodedAudioStream(videoId, streamData) {
+    let finalUrl;
+    if (streamData.url) {
+      let urlFormat = new URL(streamData.url);
+      this.parseUrl(urlFormat);
+      finalUrl = urlFormat;
+    } else if (streamData.signatureCipher) {
+      let urlParts = new URLSearchParams(streamData.signatureCipher);
+      let urlFormat = new URL(urlParts.get("url"));
+      let signature = urlParts.get("sig");
+      this.parseSignature(urlFormat, signature);
+    }
+
+    urlFormat.searchParams.set("pot", await this.base.bgRunner.mintToken(videoId));
+    urlFormat.searchParams.set("ump", "1");
+    urlFormat.searchParams.set("srfvp", "1");
+    return urlFormat;
+  }
+
+    // let rawUrl;
+    // if (bestStream.signatureCipher) {
+    //   let signatureData = new URLSearchParams(bestStream.signatureCipher);
+    //   let rawSig = signatureData.get("s");
+    //   let url = new URL(signatureData.get("url"));
+    //
+    //   url.searchParams.set("sig", sigFunctions.sig(rawSig));
+    //   rawUrl = url;
+    //   console.log("URL has signature cipher!");
+    // } else {
+    //   rawUrl = new URL(bestStream.url);
+    //   console.log("URL is normal");
+    // }
+    //
+    // rawUrl.searchParams.set("len", bestStream.contentLength);
+    // let nSignature = rawUrl.searchParams.get("n");
+    // let newN = sigFunctions.n(nSignature);
+    // rawUrl.searchParams.set("n", newN);
+    // rawUrl.searchParams.set("pot", await poTokenMinter.mintToken(visitorId));
+    // rawUrl.searchParams.set("ump", "1");
+    // rawUrl.searchParams.set("srfvp", 1)
+    //
+    // console.log("Finish proc URL", rawUrl.searchParams)
+    //
+    // return rawUrl;
+  
+
+  parseUrl(url) {
+    let nSignature = url.searchParams.get("n");
+    let processedN = this.signatureFunctions.n(nSignature);
+    url.searchParams.set("n", processedN);
+  }
+
+  parseSignature(url, signature) {
+    let processedSig = this.signatureFunctions.sig(signature);
+    url.searchParams.set("sig", processedSig);
+    this.parseUrl(url);
+  }
+}
+
 export async function solveSignatures(rawUrl, videoId, poTokenMinter) {
   let nSignature = rawUrl.searchParams.get("n");
   let newN = sigFunctions.n(nSignature);
@@ -82,76 +198,6 @@ export async function solveSignatures(rawUrl, videoId, poTokenMinter) {
 
 export async function getBestAudioStream(browserInstance, videoId, poTokenMinter) {
 
-  let baseFile = fs.readFileSync("./data/base.js");
-  let sigFunctions = getSigFunctions(baseFile.toString());
-  let baseContext = browserInstance.contextBody;
-
-  let visitorId = videoId.trim();
-
-  let newRequestObject = {};
-  Object.assign(newRequestObject, baseContext);
-  newRequestObject.videoId = videoId.trim();
-
-  let headerObject = {
-    Cookie: await browserInstance.getCookieString(),
-    "content-type": "application/json"
-  }
-  let newHeaderObject = {};
-  Object.assign(newHeaderObject, browserInstance.baseHeaders);
-  Object.assign(newHeaderObject, headerObject);
-
-  console.log("Sending request, headers:");
-  console.log(newHeaderObject);
-  console.log("Body");
-  console.log(newRequestObject);
-
-  const resp = await fetch("https://music.youtube.com/youtubei/v1/player?prettyPrint=false", {
-    method: "POST",
-    headers: newHeaderObject,
-    body: JSON.stringify(newRequestObject)
-  })
-
-  const jsonData = await resp.json();
-
-  console.log("Received data", jsonData);
-
-  const adaptiveStreams = jsonData.streamingData.adaptiveFormats;
-  let bestStream = null;
-  let streamLen = null;
-  for (let data of adaptiveStreams) {
-    if (data.audioQuality == "AUDIO_QUALITY_MEDIUM") {
-      bestStream = data;
-    }
-  }
-
-  console.log(`Found best stream with itag ${bestStream.itag} len ${bestStream.contentLength}`);
-
-
-  let rawUrl;
-  if (bestStream.signatureCipher) {
-    let signatureData = new URLSearchParams(bestStream.signatureCipher);
-    let rawSig = signatureData.get("s");
-    let url = new URL(signatureData.get("url"));
-
-    url.searchParams.set("sig", sigFunctions.sig(rawSig));
-    rawUrl = url;
-    console.log("URL has signature cipher!");
-  } else {
-    rawUrl = new URL(bestStream.url);
-    console.log("URL is normal");
-  }
-
-  rawUrl.searchParams.set("len", bestStream.contentLength);
-  let nSignature = rawUrl.searchParams.get("n");
-  let newN = sigFunctions.n(nSignature);
-  rawUrl.searchParams.set("n", newN);
-  rawUrl.searchParams.set("pot", await poTokenMinter.mintToken(visitorId));
-  rawUrl.searchParams.set("ump", "1");
-  rawUrl.searchParams.set("srfvp", 1)
-
-  console.log("Finish proc URL", rawUrl.searchParams)
-
-  return rawUrl;
 }
 
 export async function getAudioBuffer(sourceUrl) {
@@ -254,3 +300,5 @@ async function getAudioBytes(sourceUrl) {
 
   return totalResult;
 }
+
+export default ChallengeSolver;
